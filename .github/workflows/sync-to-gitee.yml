@@ -1,0 +1,55 @@
+name: GitHub ➜ Gitee 自动同步
+
+on:
+  schedule:
+    - cron: '30 15 * * *' # 每天洛杉矶时间 08:30 AM
+  workflow_dispatch:
+
+jobs:
+  push_to_gitee:
+    runs-on: ubuntu-latest
+
+    env:
+      UPSTREAM_REPO: ${{ secrets.UPSTREAM_REPO }}
+      GITEE_REPO: ${{ secrets.GITEE_REPO }}
+      BARK_BASE: ${{ secrets.BARK_BASE }}
+
+    steps:
+      - name: 设置 SSH 认证
+        uses: webfactory/ssh-agent@v0.8.0
+        with:
+          ssh-private-key: ${{ secrets.GITEE_RSA_PRIVATE_KEY }}
+
+      - name: 拉取代码
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 设置 Git 用户信息
+        run: |
+          git config --global user.name "GitHub Actions Bot"
+          git config --global user.email "actions@github.com"
+
+      - name: 添加 Gitee 远程仓库
+        run: |
+          git remote add gitee git@gitee.com:${GITEE_REPO}.git
+          git remote -v
+
+      - name: 推送分支（排除 sync_to_gitee）
+        run: |
+          set -e
+          for branch in $(git for-each-ref --format='%(refname:short)' refs/heads/); do
+            if [[ "$branch" != "sync_to_gitee" ]]; then
+              git push --force gitee "$branch"
+            fi
+          done
+
+      - name: Bark 通知（成功）
+        if: success()
+        run: |
+          curl "${BARK_BASE}?title=同步成功&body=Fork ➜ Gitee 同步完成"
+
+      - name: Bark 通知（失败）
+        if: failure()
+        run: |
+          curl "${BARK_BASE}?title=同步失败&body=请检查 GitHub Actions 日志"
