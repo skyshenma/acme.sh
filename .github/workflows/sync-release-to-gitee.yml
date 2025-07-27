@@ -1,0 +1,53 @@
+name: 同步 GitHub Releases ➜ Gitee （含附件）
+
+on:
+  workflow_dispatch:  # 手动触发
+  schedule:
+    - cron: '0 3 * * *'  # 每日凌晨 3 点自动运行（UTC）
+
+jobs:
+  sync-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 🧳 Checkout 仓库代码
+        uses: actions/checkout@v3
+
+      - name: 🧱 构建安装包（例如 acme.sh.tar.gz）
+        run: |
+          mkdir dist
+          tar -czf dist/acme.sh.tar.gz ./acme.sh
+
+      - name: 📦 获取 GitHub Releases 并推送至 Gitee
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          upstream="${{ secrets.UPSTREAM_REPO }}"      # 如 acmesh-official/acme.sh
+          gitee_repo="${{ secrets.GITEE_REPO }}"        # 如 skyshenma/acme.sh
+
+          echo "获取 GitHub Releases..."
+          gh release list --limit 10 | while read -r line; do
+            tag=$(echo "$line" | cut -f1)
+            name=$(echo "$line" | cut -f3)
+            echo "处理发布版本: $tag"
+
+            # 获取 Release 描述
+            body=$(gh release view "$tag" --json body -q .body | jq -Rs '.')
+
+            # 创建 Gitee Release
+            curl -X POST "https://gitee.com/api/v5/repos/$gitee_repo/releases" \
+              -H "Content-Type: application/json" \
+              -d "{
+                    \"access_token\": \"$GITEE_TOKEN\",
+                    \"tag_name\": \"$tag\",
+                    \"name\": \"$name\",
+                    \"body\": $body
+                  }"
+
+            # 上传附件（安装包）
+            curl -X POST "https://gitee.com/api/v5/repos/$gitee_repo/releases/$tag/assets?access_token=$GITEE_TOKEN" \
+              -F name="acme.sh.tar.gz" \
+              -F attachment=@dist/acme.sh.tar.gz
+
+          done
