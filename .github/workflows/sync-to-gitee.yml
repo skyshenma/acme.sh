@@ -1,31 +1,84 @@
-name: GitHub ➜ Gitee 分支同步
+name: GitHub ➜ Gitee 自动并发同步（终极增强版）
 
 on:
   push:
     branches:
       - master
       - dev
-  schedule:
-    - cron: '0 4 * * *'  # 每天 UTC 4 点同步（即北京时间中午 12 点）
-  workflow_dispatch:      # 手动触发支持
+      - sync_to_gitee
+  workflow_dispatch:
 
 jobs:
   sync:
     runs-on: ubuntu-latest
+
     steps:
-      - name: 启用 Gitee SSH 私钥
+      - name: 🧳 Checkout 代码
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: 🔧 Git 用户配置
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+
+      - name: 🔐 启用 Gitee SSH 私钥
         uses: webfactory/ssh-agent@v0.8.0
         with:
           ssh-private-key: ${{ secrets.GITEE_RSA_PRIVATE_KEY }}
 
-      - name: 信任 Gitee 主机密钥
+      - name: 🔁 添加远程仓库
         run: |
-          mkdir -p ~/.ssh
-          ssh-keyscan gitee.com >> ~/.ssh/known_hosts
+          git remote add upstream https://github.com/${{ secrets.UPSTREAM_REPO }}.git
+          git remote add gitee git@gitee.com:${{ secrets.GITEE_REPO }}.git
 
-      - name: 克隆 GitHub 仓库当前分支（使用 HTTPS）
+      - name: 🔄 同步 master 和 dev 分支
         run: |
-          git clone --depth=1 --branch ${{ github.ref_name }} https://github.com/${{ secrets.UPSTREAM_REPO }} repo
-          cd repo
-          git remote set-url origin git@gitee.com:${{ secrets.GITEE_REPO }}
-          git push origin ${{ github.ref_name }} --force
+          for branch in master dev; do
+            echo "同步分支：$branch"
+            git fetch upstream $branch
+            git checkout -B $branch upstream/$branch
+            git push -f gitee $branch
+          done
+
+      - name: 🏷️ 同步 Tags（版本标签）
+        run: |
+          git fetch upstream --tags
+          for tag in $(git tag); do
+            git push gitee tag $tag || echo "Tag $tag 已存在或推送失败，跳过"
+          done
+
+      - name: 📦 同步 Releases
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const upstream = '${{ secrets.UPSTREAM_REPO }}';
+            const { data: releases } = await github.rest.repos.listReleases({
+              owner: upstream.split('/')[0],
+              repo: upstream.split('/')[1],
+              per_page: 100
+            });
+
+            for (const release of releases) {
+              await github.rest.repos.createRelease({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag_name: release.tag_name,
+                name: release.name,
+                body: release.body || '',
+                draft: release.draft,
+                prerelease: release.prerelease
+              }).catch(error => {
+                console.log(`Release ${release.tag_name} 已存在或失败，跳过`);
+              });
+            }
+
+      - name: 🛡️ 跳过 sync_to_gitee 分支处理
+        if: github.ref == 'refs/heads/sync_to_gitee'
+        run: echo "保护 sync_to_gitee 分支，不进行同步"
+
+      - name: ✅ 手动触发提示
+        if: github.event_name == 'workflow_dispatch'
+        run: echo "同步完成！（master/dev/tags/releases）已推送到 Gitee"
+
