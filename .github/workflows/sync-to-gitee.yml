@@ -1,4 +1,4 @@
-name: GitHub ➜ Gitee 同步 master & dev 分支
+name: GitHub ➜ Gitee 分支同步
 
 on:
   push:
@@ -6,14 +6,14 @@ on:
       - master
       - dev
   schedule:
-    - cron: '0 4 * * *'  # 每天凌晨 4 点自动运行（UTC 时间）
+    - cron: '0 4 * * *'  # 每天 UTC 4 点同步（即北京时间中午 12 点）
   workflow_dispatch:      # 手动触发支持
 
 jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-      - name: 启用 SSH 推送
+      - name: 启用 Gitee SSH 私钥
         uses: webfactory/ssh-agent@v0.8.0
         with:
           ssh-private-key: ${{ secrets.GITEE_RSA_PRIVATE_KEY }}
@@ -23,9 +23,9 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keyscan gitee.com >> ~/.ssh/known_hosts
 
-      - name: 克隆 GitHub 仓库指定分支
+      - name: 克隆 GitHub 仓库当前分支（使用 HTTPS）
         run: |
-          git clone --depth=1 --branch ${{ github.ref_name }} git@github.com:${{ secrets.UPSTREAM_REPO }} repo
+          git clone --depth=1 --branch ${{ github.ref_name }} https://github.com/${{ secrets.UPSTREAM_REPO }} repo
           cd repo
           git remote set-url origin git@gitee.com:${{ secrets.GITEE_REPO }}
           git push origin ${{ github.ref_name }} --force
