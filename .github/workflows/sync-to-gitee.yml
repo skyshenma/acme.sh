@@ -1,20 +1,19 @@
 name: GitHub ➜ Gitee 同步 master & dev 分支
 
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - master
+      - dev
   schedule:
-    - cron: '0 */6 * * *'  # 每 6 小时自动运行一次
+    - cron: '0 4 * * *' # 每天凌晨 4 点自动同步
+  workflow_dispatch:     # 手动触发按钮支持
 
 jobs:
   sync:
     runs-on: ubuntu-latest
-
-    env:
-      GITEE_REPO: ${{ secrets.GITEE_REPO }}
-      UPSTREAM_REPO: ${{ secrets.UPSTREAM_REPO }}
-
     steps:
-      - name: 设置 SSH 推送到 Gitee
+      - name: 启用 SSH 推送
         uses: webfactory/ssh-agent@v0.8.0
         with:
           ssh-private-key: ${{ secrets.GITEE_RSA_PRIVATE_KEY }}
@@ -24,26 +23,9 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keyscan gitee.com >> ~/.ssh/known_hosts
 
-      - name: 克隆你的 GitHub 仓库
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: 配置 Git 和添加 upstream 远程源
+      - name: 克隆 GitHub 仓库
         run: |
-          git config --global user.name "GitHub Action"
-          git config --global user.email "action@github.com"
-          git remote add upstream https://github.com/${UPSTREAM_REPO}
-          git fetch upstream
-
-      - name: 同步 master 和 dev 分支并推送到 Gitee
-        run: |
-          for branch in master dev; do
-            git checkout --track upstream/$branch || git checkout $branch
-            git pull upstream $branch --rebase
-            git push origin $branch
-
-            # 推送到 Gitee（通过 SSH）
-            git remote add gitee git@gitee.com:${GITEE_REPO}.git || true
-            git push gitee $branch
-          done
+          git clone --depth=1 --branch ${{ github.ref_name }} git@github.com:${{ secrets.UPSTREAM_REPO }} repo
+          cd repo
+          git remote set-url origin git@gitee.com:${{ secrets.GITEE_REPO }}
+          git push origin ${{ github.ref_name }} --force
