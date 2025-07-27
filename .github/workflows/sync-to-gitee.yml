@@ -28,6 +28,9 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.GITEE_RSA_PRIVATE_KEY }}
 
+      - name: 🧷 信任 Gitee SSH 主机密钥
+        run: ssh-keyscan gitee.com >> ~/.ssh/known_hosts
+
       - name: 🔁 添加远程仓库
         run: |
           git remote add upstream https://github.com/${{ secrets.UPSTREAM_REPO }}.git
