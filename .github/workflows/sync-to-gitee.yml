@@ -19,6 +19,11 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.GITEE_RSA_PRIVATE_KEY }}
 
+      - name: 信任 Gitee 主机密钥
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan gitee.com >> ~/.ssh/known_hosts
+
       - name: 克隆你的 GitHub 仓库
         uses: actions/checkout@v4
         with:
@@ -34,9 +39,11 @@ jobs:
       - name: 同步 master 和 dev 分支并推送到 Gitee
         run: |
           for branch in master dev; do
-            git checkout $branch || git checkout --track upstream/$branch
+            git checkout --track upstream/$branch || git checkout $branch
             git pull upstream $branch --rebase
             git push origin $branch
+
+            # 推送到 Gitee（通过 SSH）
             git remote add gitee git@gitee.com:${GITEE_REPO}.git || true
             git push gitee $branch
           done
