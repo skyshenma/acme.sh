@@ -6,8 +6,8 @@ on:
       - master
       - dev
   schedule:
-    - cron: '0 4 * * *' # 每天凌晨 4 点自动同步
-  workflow_dispatch:     # 手动触发按钮支持
+    - cron: '0 4 * * *'  # 每天凌晨 4 点自动运行（UTC 时间）
+  workflow_dispatch:      # 手动触发支持
 
 jobs:
   sync:
@@ -23,7 +23,7 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keyscan gitee.com >> ~/.ssh/known_hosts
 
-      - name: 克隆 GitHub 仓库
+      - name: 克隆 GitHub 仓库指定分支
         run: |
           git clone --depth=1 --branch ${{ github.ref_name }} git@github.com:${{ secrets.UPSTREAM_REPO }} repo
           cd repo
