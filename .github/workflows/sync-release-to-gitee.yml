@@ -1,53 +1,65 @@
-name: 同步 GitHub Releases ➜ Gitee （含附件）
+name: Sync to Gitee
 
 on:
-  workflow_dispatch:  # 手动触发
-  schedule:
-    - cron: '0 3 * * *'  # 每日凌晨 3 点自动运行（UTC）
+  push: # 自动同步：当代码推送到指定分支时触发
+    branches:
+      - master
+      - sync_to_gitee
+  workflow_dispatch: # 手动同步：允许手动触发工作流
 
 jobs:
-  sync-release:
+  sync:
     runs-on: ubuntu-latest
 
     steps:
-      - name: 🧳 Checkout 仓库代码
+      # Step 1: 检出代码
+      - name: Checkout source code
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0 # 禁用浅克隆，拉取完整的 Git 历史记录
 
-      - name: 🧱 构建安装包（例如 acme.sh.tar.gz）
+      # Step 2: 配置 Git 用户信息
+      - name: Configure Git
         run: |
-          mkdir dist
-          tar -czf dist/acme.sh.tar.gz ./acme.sh
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
 
-      - name: 📦 获取 GitHub Releases 并推送至 Gitee
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+      # Step 3: 添加远程仓库
+      - name: Add remotes
         run: |
-          upstream="${{ secrets.UPSTREAM_REPO }}"      # 如 acmesh-official/acme.sh
-          gitee_repo="${{ secrets.GITEE_REPO }}"        # 如 skyshenma/acme.sh
+          # 添加上游仓库（GitHub）
+          git remote add upstream https://github.com/${{ secrets.UPSTREAM_REPO }}.git
+          # 添加 Gitee 仓库
+          git remote add gitee https://oauth2:${{ secrets.GITEE_TOKEN }}@gitee.com/${{ secrets.GITEE_REPO }}.git
 
-          echo "获取 GitHub Releases..."
-          gh release list --limit 10 | while read -r line; do
-            tag=$(echo "$line" | cut -f1)
-            name=$(echo "$line" | cut -f3)
-            echo "处理发布版本: $tag"
+      # Step 4: 拉取上游仓库的所有分支
+      - name: Fetch upstream branches
+        run: |
+          git fetch upstream --prune # 拉取并清理上游仓库的所有分支
 
-            # 获取 Release 描述
-            body=$(gh release view "$tag" --json body -q .body | jq -Rs '.')
+      # Step 5: 推送分支到 Gitee
+      - name: Push branches to Gitee
+        run: |
+          # 获取所有有效的远程分支名称，并排除 HEAD 和 sync_to_gitee
+          #branches=$(git branch -r | grep 'upstream/' | sed 's/upstream\///' | grep -v -E 'HEAD|sync_to_gitee')
+          branches=$(git branch -r | grep 'upstream/' | sed 's/upstream\///' | sort -u | grep -v -E 'HEAD|sync_to_gitee')
 
-            # 创建 Gitee Release
-            curl -X POST "https://gitee.com/api/v5/repos/$gitee_repo/releases" \
-              -H "Content-Type: application/json" \
-              -d "{
-                    \"access_token\": \"$GITEE_TOKEN\",
-                    \"tag_name\": \"$tag\",
-                    \"name\": \"$name\",
-                    \"body\": $body
-                  }"
 
-            # 上传附件（安装包）
-            curl -X POST "https://gitee.com/api/v5/repos/$gitee_repo/releases/$tag/assets?access_token=$GITEE_TOKEN" \
-              -F name="acme.sh.tar.gz" \
-              -F attachment=@dist/acme.sh.tar.gz
-
+          for branch in $branches; do
+            echo "Processing branch: $branch"
+            #git checkout $branch # 检出分支
+            git checkout --track upstream/$branch # 创建新本地分支并追踪远程分支 使用 --track 参数更明确
+            git merge --ff-only upstream/$branch || echo "No fast-forward merge possible for $branch" # 合并上游分支
+            git push --force gitee $branch:$branch # 推送到 Gitee
           done
+
+      # Step 6: 保护 sync_to_gitee 分支
+      - name: Protect sync_to_gitee branch
+        if: github.ref == 'refs/heads/sync_to_gitee' # 仅针对 sync_to_gitee 分支运行
+        run: |
+          echo "Skipping sync_to_gitee branch to avoid overwriting its contents."
+
+      # Step 7: 手动触发时的提示信息
+      - name: Manual Trigger Info
+        if: github.event_name == 'workflow_dispatch'
+        run: echo "Manual synchronization completed successfully!"
