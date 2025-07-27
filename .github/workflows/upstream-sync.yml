@@ -1,0 +1,40 @@
+name: Upstream ➜ Fork 自动同步
+
+on:
+  schedule:
+    - cron: '30 15 * * *'  # 每天洛杉矶时间 08:30 AM（UTC 15:30）
+  workflow_dispatch:
+
+jobs:
+  sync_from_upstream:
+    runs-on: ubuntu-latest
+
+    env:
+      UPSTREAM_REPO: ${{ secrets.UPSTREAM_REPO }}
+
+    steps:
+      - name: Checkout Fork 仓库
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 配置 Git 用户信息
+        run: |
+          git config --global user.name "GitHub Sync Bot"
+          git config --global user.email "syncbot@github.com"
+
+      - name: 添加上游仓库 remote
+        run: |
+          git remote add upstream https://github.com/${UPSTREAM_REPO}.git
+          git fetch upstream
+
+      - name: 获取所有分支（排除 sync_to_gitee）
+        run: |
+          set -e
+          for branch in $(git ls-remote --heads upstream | awk '{print $2}' | sed 's|refs/heads/||'); do
+            if [[ "$branch" != "sync_to_gitee" ]]; then
+              git checkout "$branch" || git checkout -b "$branch"
+              git pull upstream "$branch"
+              git push origin "$branch"
+            fi
+          done
